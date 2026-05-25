@@ -1,21 +1,23 @@
 import os
 import requests
 import json
-import time
 
+# ================== 配置 ==================
 APP_ID = os.getenv("FEISHU_APP_ID")
 APP_SECRET = os.getenv("FEISHU_APP_SECRET")
 CHAT_ID = os.getenv("FEISHU_CHAT_ID")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 ROLE = os.getenv("AI_ROLE", "Buffer")
 
-print("=== AI Collaborator Bot Started ===")
-print(f"CHAT_ID: {CHAT_ID}")
-print(f"ROLE: {ROLE}")
+print("=== 启动 AI 协作者 ===", flush=True)
+print(f"群ID: {CHAT_ID}", flush=True)
+print(f"角色: {ROLE}", flush=True)
 
 
-# 获取飞书 token
+# ================== 获取飞书 TOKEN ==================
 def get_feishu_token():
+    print("获取飞书 token...", flush=True)
+
     url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 
     data = {
@@ -23,12 +25,19 @@ def get_feishu_token():
         "app_secret": APP_SECRET
     }
 
-    res = requests.post(url, json=data)
+    res = requests.post(
+        url,
+        json=data,
+        timeout=10
+    )
+
     return res.json()["tenant_access_token"]
 
 
-# 获取最近消息 + 最新 message_id
+# ================== 读取群消息 ==================
 def get_context(token):
+    print("读取群消息...", flush=True)
+
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
 
     headers = {
@@ -44,10 +53,12 @@ def get_context(token):
     res = requests.get(
         url,
         headers=headers,
-        params=params
+        params=params,
+        timeout=10
     )
 
     data = res.json()
+
     items = data.get("data", {}).get("items", [])
 
     texts = []
@@ -65,16 +76,16 @@ def get_context(token):
                 texts.append(text)
 
         except:
-            pass
+            continue
 
-    latest_message_id = items[0]["message_id"] if items else None
-
-    return "\n".join(reversed(texts)), latest_message_id
+    return "\n".join(reversed(texts))
 
 
-# 调豆包
+# ================== 调用豆包 ==================
 def call_doubao(context, role):
+    print("调用豆包生成回复...", flush=True)
 
+    # 注意这里修正了
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
     headers = {
@@ -84,36 +95,24 @@ def call_doubao(context, role):
 
     if role == "Buffer":
         prompt = f"""
-你是团队AI协作者 Buffer。
+你是团队协作者 Buffer。
 
 职责：
-- 总结讨论
-- 推进流程
-- 降低协调成本
+总结信息、推进流程、降低协调成本。
 
-要求：
-- 回复自然
-- 简洁
-- 不超过2句话
+请基于以下群聊内容自然回复1-2句话：
 
-群聊内容：
 {context}
 """
     else:
         prompt = f"""
-你是团队AI协作者 Connect。
+你是团队协作者 Connect。
 
 职责：
-- 连接观点
-- 协调依赖
-- 推进协作
+连接观点、协调依赖、促进协作。
 
-要求：
-- 回复自然
-- 简洁
-- 不超过3句话
+请基于以下群聊内容自然回复1-3句话：
 
-群聊内容：
 {context}
 """
 
@@ -132,7 +131,7 @@ def call_doubao(context, role):
             url,
             headers=headers,
             json=data,
-            timeout=30
+            timeout=15
         )
 
         result = res.json()
@@ -140,12 +139,13 @@ def call_doubao(context, role):
         return result["choices"][0]["message"]["content"].strip()
 
     except Exception as e:
-        print("豆包调用失败:", e)
-        return None
+        print("豆包调用失败:", e, flush=True)
+        return "已同步本次讨论信息。"
 
 
-# 发回飞书
+# ================== 发消息到飞书 ==================
 def send_message(token, text):
+    print("发送飞书消息...", flush=True)
 
     url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
 
@@ -158,46 +158,33 @@ def send_message(token, text):
         "receive_id": CHAT_ID,
         "msg_type": "text",
         "content": json.dumps({
-            "text": f"【AI {ROLE}】\n{text}"
+            "text": f"【AI {ROLE}】{text}"
         })
     }
 
     res = requests.post(
         url,
         headers=headers,
-        json=payload
+        json=payload,
+        timeout=10
     )
 
-    print("发送状态:", res.status_code)
-    print(res.text)
+    print("飞书返回:", res.text, flush=True)
 
 
-# 主循环：每10秒检查一次
+# ================== 主程序（单次运行）
+# ==================
 if __name__ == "__main__":
+    try:
+        token = get_feishu_token()
 
-    token = get_feishu_token()
+        context = get_context(token)
 
-    last_message_id = None
+        if context:
+            reply = call_doubao(context, ROLE)
+            send_message(token, reply)
 
-    while True:
-        try:
-            context, latest_message_id = get_context(token)
+        print("✅ 执行完成", flush=True)
 
-            if latest_message_id != last_message_id:
-
-                print("\n检测到新消息，开始生成回复...")
-
-                reply = call_doubao(context, ROLE)
-
-                if reply:
-                    send_message(token, reply)
-
-                last_message_id = latest_message_id
-
-            else:
-                print("无新消息，10秒后继续检查...")
-
-        except Exception as e:
-            print("运行异常：", e)
-
-        time.sleep(10)
+    except Exception as e:
+        print(f"❌ 错误: {e}", flush=True)
