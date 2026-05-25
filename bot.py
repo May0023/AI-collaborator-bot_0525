@@ -44,42 +44,39 @@ def get_context(token):
             continue
     return "\n".join(reversed(texts))
 
-# ================== DeepSeek API 修复版 ==================
-def ask_deepseek(context, role):
+# ================== 通义千问 AI ==================
+def ask_tongyi(context, role):
     if not context:
         return None
 
-    url = "https://api.deepseek.com/chat/completions"
+    url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
 
     if role == "Buffer":
-        prompt = f"你是团队协作者Buffer，总结讨论、推进流程、降低协调成本，1-2句话：\n{context}"
+        prompt = f"你是团队协作者Buffer，总结信息、推进流程、降低协调成本，1-2句话：\n{context}"
     else:
         prompt = f"你是团队协作者Connect，连接观点、协调依赖、促进协作，1-3句话：\n{context}"
 
     data = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2
+        "model": "qwen-turbo",
+        "input": {
+            "messages": [{"role": "user", "content": prompt}]
+        },
+        "parameters": {
+            "temperature": 0.3
+        }
     }
 
     try:
         res = requests.post(url, headers=headers, json=data, timeout=15)
         response = res.json()
-
-        # 稳定取出回复，兼容所有返回格式
-        if "choices" in response and len(response["choices"]) > 0:
-            return response["choices"][0]["message"]["content"].strip()
-        else:
-            print("DeepSeek返回异常:", response, flush=True)
-            return "已同步讨论内容，项目可继续推进。"
-
+        return response["output"]["text"].strip()
     except Exception as e:
-        print("API调用失败:", e, flush=True)
-        return "已同步讨论内容，项目可继续推进。"
+        print("API错误:", e, flush=True)
+        return "已同步讨论内容，可继续推进。"
 
 # ================== 发消息到飞书 ==================
 def send_message(token, text):
@@ -98,7 +95,7 @@ if __name__ == "__main__":
     try:
         token = get_feishu_token()
         context = get_context(token)
-        reply = ask_deepseek(context, ROLE)
+        reply = ask_tongyi(context, ROLE)
         if reply:
             send_message(token, reply)
         print("✅ 执行完成", flush=True)
