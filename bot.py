@@ -44,7 +44,7 @@ def get_context(token):
             continue
     return "\n".join(reversed(texts))
 
-# ================== DeepSeek API ==================
+# ================== DeepSeek API 修复版 ==================
 def ask_deepseek(context, role):
     if not context:
         return None
@@ -56,26 +56,30 @@ def ask_deepseek(context, role):
     }
 
     if role == "Buffer":
-        prompt = f"""你是团队协作者Buffer，负责总结信息、推进流程、降低协调成本。
-请用1-2句话自然回复：
-{context}"""
+        prompt = f"你是团队协作者Buffer，总结讨论、推进流程、降低协调成本，1-2句话：\n{context}"
     else:
-        prompt = f"""你是团队协作者Connect，负责连接观点、协调依赖、促进协作。
-请用1-3句话自然回复：
-{context}"""
+        prompt = f"你是团队协作者Connect，连接观点、协调依赖、促进协作，1-3句话：\n{context}"
 
     data = {
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3
+        "temperature": 0.2
     }
 
     try:
         res = requests.post(url, headers=headers, json=data, timeout=15)
-        return res.json()["choices"][0]["message"]["content"].strip()
+        response = res.json()
+
+        # 稳定取出回复，兼容所有返回格式
+        if "choices" in response and len(response["choices"]) > 0:
+            return response["choices"][0]["message"]["content"].strip()
+        else:
+            print("DeepSeek返回异常:", response, flush=True)
+            return "已同步讨论内容，项目可继续推进。"
+
     except Exception as e:
-        print("API错误:", e, flush=True)
-        return "已同步本次讨论信息。"
+        print("API调用失败:", e, flush=True)
+        return "已同步讨论内容，项目可继续推进。"
 
 # ================== 发消息到飞书 ==================
 def send_message(token, text):
@@ -87,9 +91,9 @@ def send_message(token, text):
         "content": json.dumps({"text": f"【AI {ROLE}】{text}"})
     }
     requests.post(url, json=payload, timeout=10)
-    print("✅ 已回复", flush=True)
+    print("✅ 已发送AI回复", flush=True)
 
-# ================== 主程序（单次运行，不卡） ==================
+# ================== 主程序 ==================
 if __name__ == "__main__":
     try:
         token = get_feishu_token()
