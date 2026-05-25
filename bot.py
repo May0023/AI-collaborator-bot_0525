@@ -1,25 +1,20 @@
 import os
 import requests
 import json
+import time
 
-# =========================
-# 配置读取
-# =========================
 APP_ID = os.getenv("FEISHU_APP_ID")
 APP_SECRET = os.getenv("FEISHU_APP_SECRET")
 CHAT_ID = os.getenv("FEISHU_CHAT_ID")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 ROLE = os.getenv("AI_ROLE", "Buffer")
 
-print("=== 配置检查 ===")
-print(f"APP_ID: {APP_ID[:6]}...")
+print("=== AI Collaborator Bot Started ===")
 print(f"CHAT_ID: {CHAT_ID}")
-print(f"角色: {ROLE}")
+print(f"ROLE: {ROLE}")
 
 
-# =========================
-# 1. 获取飞书 token
-# =========================
+# 获取飞书 token
 def get_feishu_token():
     url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 
@@ -29,14 +24,10 @@ def get_feishu_token():
     }
 
     res = requests.post(url, json=data)
-    res.raise_for_status()
-
     return res.json()["tenant_access_token"]
 
 
-# =========================
-# 2. 拉取群消息上下文
-# =========================
+# 获取最近消息 + 最新 message_id
 def get_context(token):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
 
@@ -57,7 +48,6 @@ def get_context(token):
     )
 
     data = res.json()
-
     items = data.get("data", {}).get("items", [])
 
     texts = []
@@ -70,62 +60,60 @@ def get_context(token):
                 content = json.loads(content)
 
             text = content.get("text", "")
+
             if text:
                 texts.append(text)
 
-        except Exception:
-            continue
+        except:
+            pass
 
-    return "\n".join(reversed(texts))
+    latest_message_id = items[0]["message_id"] if items else None
+
+    return "\n".join(reversed(texts)), latest_message_id
 
 
-# =========================
-# 3. 调用豆包生成回复
-# =========================
-def call_doubao(api_key, context, role):
-    print("\n正在生成回复...")
+# 调豆包
+def call_doubao(context, role):
 
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json"
     }
 
     if role == "Buffer":
         prompt = f"""
-你是团队 AI 协作者 Buffer。
+你是团队AI协作者 Buffer。
 
 职责：
-- 总结讨论信息
+- 总结讨论
 - 推进流程
-- 减少协作成本
+- 降低协调成本
 
-回复要求：
-- 简洁自然
-- 1~2句话
-- 像真实团队成员发言
+要求：
+- 回复自然
+- 简洁
+- 不超过2句话
 
-以下是群聊内容：
-
+群聊内容：
 {context}
 """
     else:
         prompt = f"""
-你是团队 AI 协作者 Connect。
+你是团队AI协作者 Connect。
 
 职责：
 - 连接观点
 - 协调依赖
-- 推动跨团队协作
+- 推进协作
 
-回复要求：
-- 简洁自然
-- 1~3句话
-- 像真实团队成员发言
+要求：
+- 回复自然
+- 简洁
+- 不超过3句话
 
-以下是群聊内容：
-
+群聊内容：
 {context}
 """
 
@@ -149,37 +137,28 @@ def call_doubao(api_key, context, role):
 
         result = res.json()
 
-        reply = result["choices"][0]["message"]["content"].strip()
+        return result["choices"][0]["message"]["content"].strip()
 
     except Exception as e:
-        print("豆包调用失败：", e)
-        reply = f"【{ROLE}】我已同步当前讨论信息，可继续推进。"
-
-    print(f"✅ 生成回复：{reply}")
-
-    return reply
+        print("豆包调用失败:", e)
+        return None
 
 
-# =========================
-# 4. 发消息到飞书群（修复版）
-# =========================
+# 发回飞书
 def send_message(token, text):
 
-    # 注意：receive_id_type 必须放 URL 上
     url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
 
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json; charset=utf-8"
+        "Content-Type": "application/json"
     }
-
-    msg = f"【AI {ROLE}】\n{text}"
 
     payload = {
         "receive_id": CHAT_ID,
         "msg_type": "text",
         "content": json.dumps({
-            "text": msg
+            "text": f"【AI {ROLE}】\n{text}"
         })
     }
 
@@ -189,20 +168,36 @@ def send_message(token, text):
         json=payload
     )
 
-    print(f"发送消息状态码: {res.status_code}")
-    print(f"飞书返回内容: {res.text}")
-
-    if res.status_code != 200:
-        raise Exception(f"发送失败: {res.text}")
+    print("发送状态:", res.status_code)
+    print(res.text)
 
 
-# =========================
-# 主程序
-# =========================
+# 主循环：每10秒检查一次
 if __name__ == "__main__":
-    token = get_feishu_token()
-    context = get_context(token)
-    reply = call_doubao(LLM_API_KEY, context, ROLE)
-    send_message(token, reply)
 
-    print("\n🎉 全部完成！")
+    token = get_feishu_token()
+
+    last_message_id = None
+
+    while True:
+        try:
+            context, latest_message_id = get_context(token)
+
+            if latest_message_id != last_message_id:
+
+                print("\n检测到新消息，开始生成回复...")
+
+                reply = call_doubao(context, ROLE)
+
+                if reply:
+                    send_message(token, reply)
+
+                last_message_id = latest_message_id
+
+            else:
+                print("无新消息，10秒后继续检查...")
+
+        except Exception as e:
+            print("运行异常：", e)
+
+        time.sleep(10)
