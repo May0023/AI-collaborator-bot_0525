@@ -21,7 +21,7 @@ def get_feishu_token():
     res = requests.post(url, json=data)
     return res.json()["tenant_access_token"]
 
-# 2. 读取群消息（已修复解析）
+# 2. 读取群消息
 def get_context(token):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
     headers = {"Authorization": f"Bearer {token}"}
@@ -88,15 +88,15 @@ def call_doubao(api_key, context, role):
     print(f"✅ 生成回复：{reply}")
     return reply
 
-# 4. 发送消息到群（终极修复版）
+# 4. 发送消息到群（已修复receive_id_type问题）
 def send_message(token, text):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
     headers = {"Authorization": f"Bearer {token}"}
     
-    # 使用飞书官方推荐的格式
     msg = f"【AI {ROLE}】\n{text}"
     payload = {
         "receive_id": CHAT_ID,
+        "receive_id_type": "chat_id",
         "content": json.dumps({"text": msg}),
         "msg_type": "text"
     }
