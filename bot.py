@@ -88,31 +88,29 @@ def call_doubao(api_key, context, role):
     print(f"✅ 生成回复：{reply}")
     return reply
 
-# 4. 发送消息到群（修复：一定会显示！）
+# 4. 发送消息到群（终极修复版）
 def send_message(token, text):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
     headers = {"Authorization": f"Bearer {token}"}
     
-    # 飞书必须这样写才能显示！
+    # 使用飞书官方推荐的格式
     msg = f"【AI {ROLE}】\n{text}"
-    content = {"text": msg}
-    
     payload = {
         "receive_id": CHAT_ID,
-        "content": json.dumps(content),
+        "content": json.dumps({"text": msg}),
         "msg_type": "text"
     }
 
     res = requests.post(url, json=payload, headers=headers)
-    print(f"✅ 发送成功！状态码: {res.status_code}")
+    print(f"发送消息状态码: {res.status_code}")
+    print(f"飞书返回内容: {res.text}")
+    if res.status_code != 200:
+        raise Exception(f"发送失败，飞书返回: {res.text}")
 
 # 主程序
 if __name__ == "__main__":
-    try:
-        token = get_feishu_token()
-        context = get_context(token)
-        reply = call_doubao(LLM_API_KEY, context, ROLE)
-        send_message(token, reply)
-        print("\n🎉 全部完成！")
-    except Exception as e:
-        print(f"\n❌ 错误: {e}")
+    token = get_feishu_token()
+    context = get_context(token)
+    reply = call_doubao(LLM_API_KEY, context, ROLE)
+    send_message(token, reply)
+    print("\n🎉 全部完成！")
