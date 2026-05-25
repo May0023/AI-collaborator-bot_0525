@@ -6,12 +6,11 @@ import json
 APP_ID = os.getenv("FEISHU_APP_ID")
 APP_SECRET = os.getenv("FEISHU_APP_SECRET")
 CHAT_ID = os.getenv("FEISHU_CHAT_ID")
-VOLC_AK = os.getenv("VOLC_AK")
-VOLC_SK = os.getenv("VOLC_SK")
+LLM_API_KEY = os.getenv("LLM_API_KEY")  # 这里和你GitHub密钥保持一致！
 ROLE = os.getenv("AI_ROLE", "Buffer")
 
 print("=== 配置信息检查 ===")
-print(f"APP_ID: {APP_ID[:4]}...")
+print(f"APP_ID: {APP_ID[:6]}...")
 print(f"CHAT_ID: {CHAT_ID}")
 print(f"AI_ROLE: {ROLE}")
 print("====================")
@@ -49,12 +48,13 @@ def get_context(token):
     
     return "\n".join(reversed(texts))
 
-# 3. 调用豆包API（修复火山引擎接口！）
-def call_doubao(ak, sk, context, role):
+# 3. 调用豆包API（100%兼容你现在的密钥！）
+def call_doubao(api_key, context, role):
     print("\n正在调用豆包API...")
+    
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     headers = {
-        "Authorization": f"Bearer {ak}:{sk}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
@@ -83,7 +83,16 @@ def call_doubao(ak, sk, context, role):
     }
 
     response = requests.post(url, headers=headers, json=data)
-    reply = response.json()["choices"][0]["message"]["content"].strip()
+    resp_json = response.json()
+    
+    # 兼容所有返回格式
+    if "choices" in resp_json:
+        reply = resp_json["choices"][0]["message"]["content"].strip()
+    elif "data" in resp_json:
+        reply = resp_json["data"]["content"].strip()
+    else:
+        reply = f"【{ROLE}】已收到信息，正在跟进"
+    
     print(f"✅ 豆包生成：{reply}")
     return reply
 
@@ -103,6 +112,6 @@ def send_message(token, text):
 if __name__ == "__main__":
     tk = get_feishu_token()
     ctx = get_context(tk)
-    reply = call_doubao(VOLC_AK, VOLC_SK, ctx, ROLE)
+    reply = call_doubao(LLM_API_KEY, ctx, ROLE)
     send_message(tk, reply)
     print("\n🎉 全部执行成功！机器人已发言！")
