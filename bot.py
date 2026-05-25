@@ -111,7 +111,7 @@ def call_doubao(context, role):
     except Exception as e:
         print("LLM失败:", e, flush=True)
         return None
-
+print("LLM_API_KEY:", bool(LLM_API_KEY))
 
 # ================== 发送消息 ==================
 def send_message(token, text):
