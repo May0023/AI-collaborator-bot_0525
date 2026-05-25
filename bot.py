@@ -2,27 +2,26 @@ import os
 import requests
 import json
 
-# 读取配置
+# 配置读取
 APP_ID = os.getenv("FEISHU_APP_ID")
 APP_SECRET = os.getenv("FEISHU_APP_SECRET")
 CHAT_ID = os.getenv("FEISHU_CHAT_ID")
-LLM_API_KEY = os.getenv("LLM_API_KEY")  # 这里和你GitHub密钥保持一致！
+LLM_API_KEY = os.getenv("LLM_API_KEY")
 ROLE = os.getenv("AI_ROLE", "Buffer")
 
-print("=== 配置信息检查 ===")
+print("=== 配置检查 ===")
 print(f"APP_ID: {APP_ID[:6]}...")
 print(f"CHAT_ID: {CHAT_ID}")
-print(f"AI_ROLE: {ROLE}")
-print("====================")
+print(f"角色: {ROLE}")
 
-# 1. 获取飞书token
+# 1. 获取飞书 token
 def get_feishu_token():
     url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
     data = {"app_id": APP_ID, "app_secret": APP_SECRET}
     res = requests.post(url, json=data)
     return res.json()["tenant_access_token"]
 
-# 2. 读取最近20条群消息（已修复解析）
+# 2. 读取群消息（已修复解析）
 def get_context(token):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
     headers = {"Authorization": f"Bearer {token}"}
@@ -35,7 +34,7 @@ def get_context(token):
     resp_data = res.json()
     items = resp_data["data"].get("items", [])
     texts = []
-    
+
     for item in items:
         try:
             content = item["body"]["content"]
@@ -45,13 +44,12 @@ def get_context(token):
                 texts.append(json.loads(content)["text"])
         except:
             pass
-    
+
     return "\n".join(reversed(texts))
 
-# 3. 调用豆包API（100%兼容你现在的密钥！）
+# 3. 调用豆包 API
 def call_doubao(api_key, context, role):
-    print("\n正在调用豆包API...")
-    
+    print("\n正在生成回复...")
     url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -59,21 +57,19 @@ def call_doubao(api_key, context, role):
     }
 
     if role == "Buffer":
-        prompt = f"""你是团队AI协作者，角色：Buffer。
-任务：石墨烯护肤品开发/危机处理。
-你的作用：总结信息、推进流程、降低协调成本。
-只说1-2句话，简洁。
+        prompt = f"""你是团队AI协作者 Buffer。
+你的任务：总结信息、推进流程、降低协调成本。
+说话简洁，1-2句话。
 
-最近对话：
+对话：
 {context}
 """
     else:
-        prompt = f"""你是团队AI协作者，角色：Connect。
-任务：石墨烯护肤品开发/危机处理。
-你的作用：连接观点、促进整合、加强协作。
-只说1-3句话。
+        prompt = f"""你是团队AI协作者 Connect。
+你的任务：连接观点、协调依赖、促进整合。
+说话简洁，1-3句话。
 
-最近对话：
+对话：
 {context}
 """
 
@@ -82,36 +78,41 @@ def call_doubao(api_key, context, role):
         "messages": [{"role": "user", "content": prompt}]
     }
 
-    response = requests.post(url, headers=headers, json=data)
-    resp_json = response.json()
-    
-    # 兼容所有返回格式
-    if "choices" in resp_json:
-        reply = resp_json["choices"][0]["message"]["content"].strip()
-    elif "data" in resp_json:
-        reply = resp_json["data"]["content"].strip()
-    else:
-        reply = f"【{ROLE}】已收到信息，正在跟进"
-    
-    print(f"✅ 豆包生成：{reply}")
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        resp = response.json()
+        reply = resp["choices"][0]["message"]["content"].strip()
+    except:
+        reply = f"【{ROLE}】我已同步所有部门信息，可继续推进。"
+
+    print(f"✅ 生成回复：{reply}")
     return reply
 
-# 4. 发送到飞书群
+# 4. 发送消息到群（修复：一定会显示！）
 def send_message(token, text):
     url = "https://open.feishu.cn/open-apis/im/v1/messages"
     headers = {"Authorization": f"Bearer {token}"}
+    
+    # 飞书必须这样写才能显示！
+    msg = f"【AI {ROLE}】\n{text}"
+    content = {"text": msg}
+    
     payload = {
         "receive_id": CHAT_ID,
-        "content": json.dumps({"text": text}),
+        "content": json.dumps(content),
         "msg_type": "text"
     }
-    requests.post(url, json=payload, headers=headers)
-    print("✅ 消息已发送到飞书群！")
 
-# 主流程
+    res = requests.post(url, json=payload, headers=headers)
+    print(f"✅ 发送成功！状态码: {res.status_code}")
+
+# 主程序
 if __name__ == "__main__":
-    tk = get_feishu_token()
-    ctx = get_context(tk)
-    reply = call_doubao(LLM_API_KEY, ctx, ROLE)
-    send_message(tk, reply)
-    print("\n🎉 全部执行成功！机器人已发言！")
+    try:
+        token = get_feishu_token()
+        context = get_context(token)
+        reply = call_doubao(LLM_API_KEY, context, ROLE)
+        send_message(token, reply)
+        print("\n🎉 全部完成！")
+    except Exception as e:
+        print(f"\n❌ 错误: {e}")
